@@ -131,3 +131,23 @@ def test_name_index_uses_department_for_last_name_only_and_ties():
                                            ("CALC1", None), ("CS1011", None), (None, None)])
 def test_course_number_from_rmp(text, expected):
     assert course_number_from_rmp(text) == expected
+
+
+def test_cors_headers_only_for_allowed_origins(tmp_path):
+    settings = Settings(rmp_db=tmp_path / "x.sqlite", cors_origins=("https://app.example.com",))
+    soc = SocClient(settings.soc_base_url, httpx.Client(transport=soc_transport()))
+    c = TestClient(create_app(settings, soc=soc))
+    ok = c.get("/health", headers={"Origin": "https://app.example.com"})
+    assert ok.headers["access-control-allow-origin"] == "https://app.example.com"
+    other = c.get("/health", headers={"Origin": "https://evil.example.com"})
+    assert "access-control-allow-origin" not in other.headers
+    pre = c.options("/v1/courses", headers={"Origin": "https://app.example.com",
+                                            "Access-Control-Request-Method": "GET"})
+    assert pre.status_code == 200
+
+
+def test_cors_origins_parsed_from_env(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example.com/, https://b.example.com ,")
+    assert Settings.from_env().cors_origins == ("https://a.example.com", "https://b.example.com")
+    monkeypatch.delenv("CORS_ORIGINS")
+    assert Settings.from_env().cors_origins == ()

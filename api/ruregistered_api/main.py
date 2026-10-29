@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import VALID_CAMPUSES, VALID_TERMS, Settings, Term
@@ -21,6 +22,10 @@ def create_app(settings: Settings | None = None, soc: SocClient | None = None,
     svc = Service(settings, soc, ratings, sirs)
     app = FastAPI(title="RUregistered API", version="0.1.0",
                   description="Rutgers Schedule of Classes joined with professor ratings.")
+
+    if settings.cors_origins:
+        app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
+                           allow_methods=["GET"], allow_headers=["*"])
 
     @app.exception_handler(SocError)
     async def _soc_error(_: Request, exc: SocError):
