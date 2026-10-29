@@ -78,6 +78,17 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(fetched, 2)
         self.assertEqual(collect.collect_ratings(self.client, self.conn), 0)  # nothing left
 
+    def test_export_adds_ratings_collected_column(self):
+        import csv
+        import tempfile
+        collect.collect_professors(self.client, self.conn, 825, page_size=2)
+        collect.collect_ratings(self.client, self.conn)
+        with tempfile.TemporaryDirectory() as out:
+            collect.export_csv(self.conn, out)
+            rows = list(csv.DictReader(open(Path(out) / "professors.csv", encoding="utf-8")))
+        counts = {row["last_name"]: int(row["ratings_collected"]) for row in rows}
+        self.assertEqual(counts, {"L1": 3, "L2": 0, "L3": 1})
+
     def test_requests_are_spaced_by_delay(self):
         collect.collect_professors(self.client, self.conn, 825, page_size=2)
         self.assertTrue(self.sleeps)

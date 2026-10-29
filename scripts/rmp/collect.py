@@ -282,8 +282,15 @@ def save_rating(conn, prof_id, node):
 def export_csv(conn, out_dir):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    for table in ("professors", "ratings"):
-        cursor = conn.execute(f"SELECT * FROM {table}")
+    queries = {
+        "professors": (
+            "SELECT p.*, (SELECT COUNT(*) FROM ratings r WHERE r.professor_id = p.id) "
+            "AS ratings_collected FROM professors p"
+        ),
+        "ratings": "SELECT * FROM ratings",
+    }
+    for table, query in queries.items():
+        cursor = conn.execute(query)
         with open(out / f"{table}.csv", "w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle)
             writer.writerow(col[0] for col in cursor.description)

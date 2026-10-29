@@ -8,6 +8,6 @@ Rutgers next big thing for professor ratings
 ```
 python scripts/rmp/collect.py professors             # roughly one request per 100 professors
 python scripts/rmp/collect.py ratings --limit 200    # reviews, most-reviewed professors first
-python scripts/rmp/collect.py export --out data/rmp  # CSVs
+python scripts/rmp/collect.py export --out data/rmp  # CSVs (professors.csv includes ratings_collected)
 python -m unittest discover -s tests                 # offline tests
 ```
