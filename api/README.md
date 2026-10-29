@@ -21,8 +21,16 @@ python -m pytest
 ```
 
 Environment: `SOC_YEAR` (2026), `SOC_TERM` (9: 1 spring, 7 summer, 9 fall, 0 winter), `SOC_CAMPUS` (NB),
-`RMP_DB` (path to the SQLite file), `SOC_COURSES_TTL`, `SOC_OPEN_TTL`. Every route also takes
+`RMP_DB` (path to the SQLite file), `SOC_COURSES_TTL`, `SOC_OPEN_TTL`, `CORS_ORIGINS` (comma-separated browser
+origins allowed to call the API, e.g. `https://ruregistered.vercel.app,http://localhost:3000`; unset means no CORS headers). Every route also takes
 `?year=&term=&campus=` to look at another term.
+
+## Deploy (Railway)
+
+`railway.json` in this folder sets the start command (`uvicorn` on `$PORT`) and the `/health` check. Create the
+Railway service from this repo with **Root Directory** set to `api`, and set `CORS_ORIGINS` on the service.
+Keep one replica: the SOC snapshot lives in memory. Until ratings move into Supabase there is no `rmp.sqlite`
+on Railway, so ratings come back `null` there.
 
 ## Routes
 
