@@ -5,6 +5,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from .config import VALID_CAMPUSES, VALID_TERMS, Settings, Term
 from .names import display_name, norm
@@ -21,7 +22,12 @@ def create_app(settings: Settings | None = None, soc: SocClient | None = None,
     svc = Service(settings, soc, ratings, sirs)
     app = FastAPI(title="RUregistered API", version="0.1.0",
                   description="Rutgers Schedule of Classes joined with professor ratings.")
-
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_methods=["GET"],
+        allow_headers=["*"],
+    )
     @app.exception_handler(SocError)
     async def _soc_error(_: Request, exc: SocError):
         return JSONResponse({"detail": str(exc)}, status_code=502)
