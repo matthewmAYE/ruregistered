@@ -32,6 +32,9 @@ class Settings:
     open_sections_ttl: float = 60.0  # seconds before openSections.json is refetched
     rmp_db: Path = field(default_factory=lambda: REPO_ROOT / "data" / "rmp" / "rmp.sqlite")
     cors_origins: tuple[str, ...] = LOCAL_ORIGINS  # browser origins allowed to call the API
+    supabase_url: str | None = None  # where student reviews live
+    supabase_key: str | None = None  # the public anon key is enough to read review averages
+    reviews_ttl: float = 30.0  # seconds before review averages are refetched
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -48,4 +51,7 @@ class Settings:
             rmp_db=Path(env.get("RMP_DB", REPO_ROOT / "data" / "rmp" / "rmp.sqlite")),
             cors_origins=tuple(o.strip().rstrip("/") for o in env["CORS_ORIGINS"].split(",") if o.strip())
             if env.get("CORS_ORIGINS") else LOCAL_ORIGINS,
+            supabase_url=env.get("SUPABASE_URL") or None,
+            supabase_key=env.get("SUPABASE_KEY") or None,
+            reviews_ttl=float(env.get("REVIEWS_TTL", cls.reviews_ttl)),
         )

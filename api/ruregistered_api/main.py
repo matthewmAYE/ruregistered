@@ -10,16 +10,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import VALID_CAMPUSES, VALID_TERMS, Settings, Term
 from .names import display_name, norm
 from .ratings import RatingsStore, SirsProvider
+from .reviews import StudentReviewStore
 from .service import Service
 from .soc import SocClient, SocError
 
 
 def create_app(settings: Settings | None = None, soc: SocClient | None = None,
-               ratings: RatingsStore | None = None, sirs: SirsProvider | None = None) -> FastAPI:
+               ratings: RatingsStore | None = None, sirs: SirsProvider | None = None,
+               reviews: StudentReviewStore | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     soc = soc or SocClient(settings.soc_base_url)
     ratings = ratings or RatingsStore(settings.rmp_db)
-    svc = Service(settings, soc, ratings, sirs)
+    reviews = reviews or StudentReviewStore(settings.supabase_url, settings.supabase_key,
+                                            settings.reviews_ttl)
+    svc = Service(settings, soc, ratings, sirs, reviews)
     app = FastAPI(title="RUregistered API", version="0.1.0",
                   description="Rutgers Schedule of Classes joined with professor ratings.")
     if settings.cors_origins:
@@ -61,7 +65,13 @@ def create_app(settings: Settings | None = None, soc: SocClient | None = None,
                 "ratings": {"source": "ratemyprofessors", "available": ratings.available,
                             "professors_loaded": len(data.professors),
                             "soc_instructors": len(names), "soc_instructors_matched": matched},
+                "student_reviews": {"available": reviews.available,
+                                    "courses_reviewed": len(reviews.stats())},
                 "sirs": {"available": False}}
+
+    @app.get("/v1/subjects")
+    def list_subjects(year: int | None = Year, term: int | None = TermQ, campus: str | None = Campus):
+        return {"results": svc.subjects(snap_for(year, term, campus))}
 
     @app.get("/v1/courses")
     def list_courses(

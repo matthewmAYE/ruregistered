@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from .config import Settings, Term
 from .names import display_name, norm, slug
 from .ratings import NullSirsProvider, Professor, RatingsStore, SirsProvider
+from .reviews import StudentReviewStore
 from .soc import SocClient, SocError
 
 DAY_NAMES = {"M": "Monday", "T": "Tuesday", "W": "Wednesday", "H": "Thursday",
@@ -59,9 +60,10 @@ def _build_snapshot(term: Term, courses: list[dict]) -> Snapshot:
 
 class Service:
     def __init__(self, settings: Settings, soc: SocClient, ratings: RatingsStore,
-                 sirs: SirsProvider | None = None):
+                 sirs: SirsProvider | None = None, reviews: StudentReviewStore | None = None):
         self.settings, self.soc, self.ratings = settings, soc, ratings
         self.sirs = sirs or NullSirsProvider()
+        self.reviews = reviews or StudentReviewStore(None, None)
         self._snapshots: dict[str, Snapshot] = {}
         self._lock = threading.Lock()
 
@@ -128,7 +130,7 @@ class Service:
         self._sync_cache(snap)
         cs = course["courseString"]
         if cs in snap.agg_cache:
-            return snap.agg_cache[cs]
+            return self._with_students(snap.agg_cache[cs], cs)
         names = {i["name"] for s in course.get("sections", []) for i in s.get("instructors", [])}
         profs, rated = {}, []
         for n in names:
@@ -163,12 +165,17 @@ class Service:
                                       "avg_difficulty": round(d / dn, 2) if dn else None,
                                       "num_ratings": n}
         snap.agg_cache[cs] = agg
-        return agg
+        return self._with_students(agg, cs)
+
+    def _with_students(self, agg: dict, cs: str) -> dict:
+        # Student reviews change often so they are added fresh instead of living in the cache
+        return {**agg, "student_reviews": self.reviews.for_course(cs)}
 
     @staticmethod
     def _headline(agg: dict) -> float | None:
-        """Single number used for sorting/filtering: course-specific if known, else instructor average."""
-        block = agg["rmp_this_course"] or agg["rmp_instructor_average"]
+        """Single number used for sorting and filtering, our own reviews first, then RMP."""
+        block = (agg.get("student_reviews") or agg["rmp_this_course"]
+                 or agg["rmp_instructor_average"])
         return block["avg_rating"] if block else None
 
     # ---- shaping ------------------------------------------------------
@@ -235,8 +242,10 @@ class Service:
     # ---- search -------------------------------------------------------
     @staticmethod
     def _filters_pass(c: dict, subject, school, level, core, credits) -> bool:
-        if subject and subject != c["subject"] and norm(subject) not in norm(c.get("subjectDescription")):
-            return False
+        if subject and subject != c["subject"]:
+            # A numeric code must match exactly since norm() drops digits and would match everything
+            if subject.strip().isdigit() or norm(subject) not in norm(c.get("subjectDescription")):
+                return False
         sch = c.get("school") or {}
         if school and school != sch.get("code") and norm(school) not in norm(sch.get("description")):
             return False
@@ -271,6 +280,9 @@ class Service:
     def search(self, snap: Snapshot, *, q=None, subject=None, school=None, level=None, core=None,
                credits=None, open_only=False, instructor=None, min_rating=None, sort=None):
         q = (q or "").strip() or None
+        # A bare three digit number like 332 means that department when one exists
+        if q and re.fullmatch(r"\d{3}", q) and any(c["subject"] == q for c in snap.courses):
+            subject, q = q, None
         tokens = norm(q).split() if q else []
         numeric = bool(q) and re.fullmatch(r"[\d: ]+", q) is not None
         wanted = norm(instructor) if instructor else None
@@ -300,6 +312,16 @@ class Service:
         else:
             scored.sort(key=lambda t: (-t[0], t[2]))
         return [t[3] for t in scored]
+
+    @staticmethod
+    def subjects(snap: Snapshot) -> list[dict]:
+        """Every department offered this term with its course count."""
+        found: dict[str, dict] = {}
+        for c in snap.courses:
+            row = found.setdefault(c["subject"], {"code": c["subject"], "courses": 0,
+                                                  "description": c.get("subjectDescription")})
+            row["courses"] += 1
+        return sorted(found.values(), key=lambda r: r["code"])
 
     # ---- professors ---------------------------------------------------
     def professor_courses(self, snap: Snapshot, raw_name: str) -> list[dict]:
