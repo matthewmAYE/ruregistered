@@ -53,11 +53,36 @@ describe('Login page', () => {
     renderLogin()
     await userEvent.click(screen.getByRole('button', { name: /need an account/i }))
     expect(screen.getByRole('heading', { name: 'Create an account' })).toBeInTheDocument()
-    await fill()
+    await fill('ab123@scarletmail.rutgers.edu')
     await userEvent.click(screen.getByRole('button', { name: 'Sign up' }))
     await waitFor(() =>
-      expect(auth.signUp).toHaveBeenCalledWith({ email: 'a@b.edu', password: 'secret1' }))
+      expect(auth.signUp).toHaveBeenCalledWith({ email: 'ab123@scarletmail.rutgers.edu', password: 'secret1' }))
     expect(await screen.findByText(/check your email/i)).toBeInTheDocument()
     expect(screen.queryByText('home page')).not.toBeInTheDocument()
+  })
+
+  it('refuses sign up with a non Rutgers email before calling Supabase', async () => {
+    renderLogin()
+    await userEvent.click(screen.getByRole('button', { name: /need an account/i }))
+    await fill('someone@gmail.com')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign up' }))
+    expect(await screen.findByText(/Please sign up with your Rutgers ScarletMail/)).toBeInTheDocument()
+    expect(auth.signUp).not.toHaveBeenCalled()
+  })
+
+  it('explains the database rejection in plain words', async () => {
+    auth.signUp.mockResolvedValue({ error: { message: 'Database error saving new user' } })
+    renderLogin()
+    await userEvent.click(screen.getByRole('button', { name: /need an account/i }))
+    await fill('ab123@rutgers.edu')
+    await userEvent.click(screen.getByRole('button', { name: 'Sign up' }))
+    expect(await screen.findByText(/Please sign up with your Rutgers ScarletMail/)).toBeInTheDocument()
+  })
+
+  it('still lets any existing account log in', async () => {
+    renderLogin()
+    await fill('old@gmail.com')
+    await userEvent.click(screen.getByRole('button', { name: 'Log in' }))
+    await waitFor(() => expect(auth.signInWithPassword).toHaveBeenCalled())
   })
 })

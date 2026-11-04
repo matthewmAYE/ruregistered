@@ -2,11 +2,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import COURSES, soc_transport
+from conftest import COURSES, course, make_db, section, soc_transport
 from ruregistered_api.config import Settings
 from ruregistered_api.main import create_app
 from ruregistered_api.names import NameIndex
 from ruregistered_api.ratings import course_number_from_rmp
+from ruregistered_api.reviews import StudentReviewStore
 from ruregistered_api.soc import SocClient
 
 
@@ -131,3 +132,75 @@ def test_name_index_uses_department_for_last_name_only_and_ties():
                                            ("CALC1", None), ("CS1011", None), (None, None)])
 def test_course_number_from_rmp(text, expected):
     assert course_number_from_rmp(text) == expected
+
+
+def test_cors_headers_only_for_allowed_origins(tmp_path):
+    settings = Settings(rmp_db=tmp_path / "x.sqlite", cors_origins=("https://app.example.com",))
+    soc = SocClient(settings.soc_base_url, httpx.Client(transport=soc_transport()))
+    c = TestClient(create_app(settings, soc=soc))
+    ok = c.get("/health", headers={"Origin": "https://app.example.com"})
+    assert ok.headers["access-control-allow-origin"] == "https://app.example.com"
+    other = c.get("/health", headers={"Origin": "https://evil.example.com"})
+    assert "access-control-allow-origin" not in other.headers
+    pre = c.options("/v1/courses", headers={"Origin": "https://app.example.com",
+                                            "Access-Control-Request-Method": "GET"})
+    assert pre.status_code == 200
+
+
+def test_cors_origins_parsed_from_env(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example.com/, https://b.example.com ,")
+    assert Settings.from_env().cors_origins == ("https://a.example.com", "https://b.example.com")
+    monkeypatch.delenv("CORS_ORIGINS")
+    assert Settings.from_env().cors_origins == ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def make_client(tmp_path, courses=COURSES, stats=None):
+    # Builds an app whose Supabase review view returns `stats` rows
+    db = tmp_path / "rmp.sqlite"
+    make_db(db)
+    settings = Settings(rmp_db=db)
+    soc = SocClient(settings.soc_base_url, httpx.Client(transport=soc_transport(courses)))
+    supa = httpx.MockTransport(lambda r: httpx.Response(200, json=stats or []))
+    reviews = StudentReviewStore("https://x.supabase.co", "anon", http=httpx.Client(transport=supa))
+    return TestClient(create_app(settings, soc=soc, reviews=reviews))
+
+
+def test_bare_department_code_searches_that_department(tmp_path):
+    extra = course("01:640:198", "SPECIAL TOPICS", "640", "198", [section("00005", "01", ["DOE, JANE"])],
+                   subject_description="MATHEMATICS")
+    c = make_client(tmp_path, COURSES + [extra])
+    r = c.get("/v1/courses", params={"q": "198"}).json()["results"]
+    assert [x["course_string"] for x in r] == ["01:198:111", "01:198:112"]  # the math course numbered 198 is left out
+    r = c.get("/v1/courses", params={"q": "151"}).json()["results"]
+    assert [x["course_string"] for x in r] == ["01:640:151"]  # no such department so it is a course number
+
+
+def test_numeric_subject_filter_is_exact(client):
+    r = client.get("/v1/courses", params={"subject": "640"}).json()
+    assert [c["course_string"] for c in r["results"]] == ["01:640:151"]
+
+
+def test_subjects_route(client):
+    r = client.get("/v1/subjects").json()["results"]
+    assert r == [{"code": "198", "courses": 2, "description": "COMPUTER SCIENCE"},
+                 {"code": "640", "courses": 1, "description": "MATHEMATICS"}]
+
+
+def test_student_reviews_join_and_drive_rating_sort(tmp_path):
+    stats = [{"course_string": "01:640:151", "num_reviews": 12, "avg_quality": 4.9, "avg_difficulty": 2.5},
+             {"course_string": "01:198:112", "num_reviews": 3, "avg_quality": 1.5, "avg_difficulty": 4.0}]
+    c = make_client(tmp_path, stats=stats)
+    body = c.get("/v1/courses/01:640:151").json()
+    assert body["ratings"]["student_reviews"] == {"avg_rating": 4.9, "avg_difficulty": 2.5, "num_ratings": 12}
+    assert c.get("/v1/courses/01:198:111").json()["ratings"]["student_reviews"] is None
+    # Calculus has no RMP rating but sorts first, and students outrank RMP 5.0 for Data Structures
+    r = c.get("/v1/courses", params={"sort": "rating"}).json()["results"]
+    assert [x["course_string"] for x in r] == ["01:640:151", "01:198:111", "01:198:112"]
+    assert c.get("/v1/meta").json()["student_reviews"] == {"available": True, "courses_reviewed": 2}
+
+
+def test_student_reviews_outage_keeps_api_working(tmp_path):
+    store = StudentReviewStore("https://x.supabase.co", "anon",
+                               http=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))))
+    assert store.stats() == {}
+    assert store.for_course("01:198:111") is None

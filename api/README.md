@@ -8,6 +8,10 @@ course search plus full course, section and professor detail, joined with profes
   If a refresh fails, the last good snapshot keeps being served.
 - Ratings: read from the SQLite file written by `scripts/rmp/collect.py` (`data/rmp/rmp.sqlite`), reloaded
   automatically when the file changes. With no file the API still works and ratings are `null`.
+- Student reviews: averages per course come from the Supabase view `course_review_stats`
+  (see `ruregistered-web/supabase/ratings_and_email.sql`), cached for 30 seconds. They appear as
+  `ratings.student_reviews` and are what `sort=rating` uses first. Set `SUPABASE_URL` and `SUPABASE_KEY`
+  (the anon key is enough). Without them the field is `null` and everything else works.
 - SIRS: not available yet. Every rating block carries a `sirs` field (currently `null`) and
   `ruregistered_api.ratings.SirsProvider` is the slot to plug it into.
 
@@ -21,8 +25,17 @@ python -m pytest
 ```
 
 Environment: `SOC_YEAR` (2026), `SOC_TERM` (9: 1 spring, 7 summer, 9 fall, 0 winter), `SOC_CAMPUS` (NB),
-`RMP_DB` (path to the SQLite file), `SOC_COURSES_TTL`, `SOC_OPEN_TTL`. Every route also takes
+`RMP_DB` (path to the SQLite file), `SOC_COURSES_TTL`, `SOC_OPEN_TTL`, `SUPABASE_URL`, `SUPABASE_KEY`,
+`REVIEWS_TTL`, `CORS_ORIGINS` (comma-separated browser origins allowed to call the API, e.g.
+`https://ruregistered.vercel.app,http://localhost:3000`; unset allows only the local Vite dev server). Every route also takes
 `?year=&term=&campus=` to look at another term.
+
+## Deploy (Railway)
+
+`railway.json` in this folder sets the start command (`uvicorn` on `$PORT`) and the `/health` check. Create the
+Railway service from this repo with **Root Directory** set to `api`, and set `CORS_ORIGINS` on the service.
+Keep one replica: the SOC snapshot lives in memory. Until ratings move into Supabase there is no `rmp.sqlite`
+on Railway, so ratings come back `null` there.
 
 ## Routes
 
@@ -32,6 +45,7 @@ Environment: `SOC_YEAR` (2026), `SOC_TERM` (9: 1 spring, 7 summer, 9 fall, 0 win
 | `GET /v1/courses/{course_string}` | Full course: description, prerequisites, core codes, every section with meetings and instructors, ratings |
 | `GET /v1/courses/{course_string}/sections` | Sections only (`open_only` filter) |
 | `GET /v1/sections/{index}` | One section by registration index |
+| `GET /v1/subjects` | Departments offered this term with course counts, for the department dropdown |
 | `GET /v1/professors` | Instructors teaching this term with their ratings (`q`, `rated_only`, `sort`) |
 | `GET /v1/professors/{key}` | One instructor, ratings, and the sections they teach |
 | `GET /v1/meta` | Term, counts, load times, and how many instructors were matched to ratings |
@@ -54,7 +68,10 @@ name is matched to RateMyProfessors and the result is reported on every instruct
 A course gets two rating blocks: `rmp_instructor_average` (weighted by review count across the matched
 instructors teaching it) and `rmp_this_course` (reviews whose RMP course label ends in this course number,
 e.g. `CS111`; best effort, since RMP labels are free text). `sort=rating` and `min_rating` use
-`rmp_this_course` when present, otherwise the instructor average.
+our own `student_reviews` first, then `rmp_this_course`, then the instructor average.
+
+A bare three digit search such as `q=332` means that department when it exists, otherwise it is treated
+as a course number.
 
 ## Notes
 
