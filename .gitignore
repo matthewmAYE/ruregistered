@@ -25,6 +25,11 @@ replay_pid*
 
 # Python
 __pycache__/
+*.pyc
 *.egg-info/
 .pytest_cache/
 .venv/
+
+# RateMyProfessors data from scripts/rmp/collect.py (private use only, never commit)
+data/
+*.sqlite
