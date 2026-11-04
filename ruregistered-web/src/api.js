@@ -18,3 +18,4 @@ async function get(path, params = {}) {
 export const searchCourses = (params) => get('/v1/courses', params)
 export const getCourse = (cs) => get(`/v1/courses/${encodeURIComponent(cs)}`)
 export const getProfessor = (key) => get(`/v1/professors/${encodeURIComponent(key)}`)
+export const listSubjects = () => get('/v1/subjects')
