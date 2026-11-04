@@ -22,12 +22,10 @@ def create_app(settings: Settings | None = None, soc: SocClient | None = None,
     svc = Service(settings, soc, ratings, sirs)
     app = FastAPI(title="RUregistered API", version="0.1.0",
                   description="Rutgers Schedule of Classes joined with professor ratings.")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["GET"],
-        allow_headers=["*"],
-    )
+    if settings.cors_origins:
+        app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins),
+                           allow_methods=["GET"], allow_headers=["*"])
+
     @app.exception_handler(SocError)
     async def _soc_error(_: Request, exc: SocError):
         return JSONResponse({"detail": str(exc)}, status_code=502)

@@ -19,6 +19,7 @@ class Term:
         return f"{self.year}-{self.term}-{self.campus}"
 
 
+LOCAL_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")  # the Vite dev server
 VALID_TERMS = {0, 1, 7, 9}
 VALID_CAMPUSES = {"NB", "NK", "CM"}
 
@@ -30,6 +31,7 @@ class Settings:
     courses_ttl: float = 3600.0  # seconds before courses.json is refetched
     open_sections_ttl: float = 60.0  # seconds before openSections.json is refetched
     rmp_db: Path = field(default_factory=lambda: REPO_ROOT / "data" / "rmp" / "rmp.sqlite")
+    cors_origins: tuple[str, ...] = LOCAL_ORIGINS  # browser origins allowed to call the API
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -44,4 +46,6 @@ class Settings:
             courses_ttl=float(env.get("SOC_COURSES_TTL", cls.courses_ttl)),
             open_sections_ttl=float(env.get("SOC_OPEN_TTL", cls.open_sections_ttl)),
             rmp_db=Path(env.get("RMP_DB", REPO_ROOT / "data" / "rmp" / "rmp.sqlite")),
+            cors_origins=tuple(o.strip().rstrip("/") for o in env["CORS_ORIGINS"].split(",") if o.strip())
+            if env.get("CORS_ORIGINS") else LOCAL_ORIGINS,
         )
