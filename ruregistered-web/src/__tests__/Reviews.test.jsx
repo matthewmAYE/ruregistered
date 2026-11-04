@@ -9,13 +9,14 @@ const mocks = vi.hoisted(() => ({
   select: { data: [], error: null },
   insert: vi.fn(),
   remove: vi.fn(),
+  eq: null,
 }))
 
 vi.mock('../auth', () => ({ useAuth: () => ({ user: mocks.user }) }))
 vi.mock('../supabase', () => ({
   supabase: {
     from: () => ({
-      select: () => ({ eq: () => ({ order: () => Promise.resolve(mocks.select) }) }),
+      select: () => ({ eq: (col, val) => { mocks.eq = [col, val]; return { order: () => Promise.resolve(mocks.select) } } }),
       insert: (row) => mocks.insert(row),
       delete: () => ({ eq: (col, val) => mocks.remove(col, val) }),
     }),
@@ -27,6 +28,9 @@ const review = (over = {}) => ({
   id: 'r1', user_id: 'other', course_string: '01:198:111', professor_key: 'smith-john',
   quality: 4, difficulty: 3, comment: 'Solid class', created_at: '2026-10-01T12:00:00Z', ...over,
 })
+
+const renderProfessorReviews = () =>
+  render(<MemoryRouter><Reviews professorKey="smith-john" /></MemoryRouter>)
 
 const renderReviews = () =>
   render(<MemoryRouter><Reviews courseString="01:198:111" instructors={instructors} /></MemoryRouter>)
@@ -103,5 +107,92 @@ describe('Reviews', () => {
     expect(buttons).toHaveLength(1)
     await userEvent.click(buttons[0])
     await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith('id', 'mine'))
+  })
+
+  it('draws a distribution chart of quality scores', async () => {
+    mocks.select = { data: [review(), review({ id: 'r2', quality: 4 }), review({ id: 'r3', quality: 1 })], error: null }
+    renderReviews()
+    const chart = await screen.findByRole('img', { name: /rating distribution/i })
+    expect(chart).toHaveAccessibleName(/4 stars: 2/)
+    expect(chart).toHaveAccessibleName(/1 stars: 1/)
+    expect(chart).toHaveAccessibleName(/5 stars: 0/)
+  })
+
+  it('rejects scores outside 1 to 5 without calling Supabase', async () => {
+    mocks.user = { id: 'u1' }
+    renderReviews()
+    await screen.findByText(/no student reviews yet/i)
+    const quality = screen.getByLabelText(/quality/i)
+    await userEvent.clear(quality)
+    await userEvent.click(screen.getByRole('button', { name: 'Post review' }))
+    expect(await screen.findByText(/whole numbers from 1 to 5/i)).toBeInTheDocument()
+    expect(mocks.insert).not.toHaveBeenCalled()
+  })
+
+  describe('for a professor', () => {
+    it('queries by professor, links to the course, and has no form', async () => {
+      mocks.user = { id: 'u1' }
+      mocks.select = { data: [review()], error: null }
+      renderProfessorReviews()
+      expect(await screen.findByText('Solid class')).toBeInTheDocument()
+      expect(mocks.eq).toEqual(['professor_key', 'smith-john'])
+      expect(screen.getByRole('link', { name: '01:198:111' })).toHaveAttribute('href', '/courses/01:198:111')
+      expect(screen.queryByRole('button', { name: 'Post review' })).not.toBeInTheDocument()
+    })
+
+    it('explains where reviews are written when there are none', async () => {
+      renderProfessorReviews()
+      expect(await screen.findByText(/written on course pages/i)).toBeInTheDocument()
+    })
+  })
+
+  describe('reporting', () => {
+    const openReport = async () => {
+      mocks.user = { id: 'u1' }
+      mocks.select = { data: [review()], error: null }
+      renderReviews()
+      await userEvent.click(await screen.findByRole('button', { name: 'Report' }))
+    }
+
+    it('sends a report with the chosen reason', async () => {
+      await openReport()
+      await userEvent.selectOptions(screen.getByLabelText('Reason'), 'offensive')
+      await userEvent.type(screen.getByLabelText(/details/i), '  rude  ')
+      await userEvent.click(screen.getByRole('button', { name: 'Send report' }))
+      await waitFor(() => expect(mocks.insert).toHaveBeenCalledWith(
+        { review_id: 'r1', reporter_id: 'u1', reason: 'offensive', details: 'rude' }))
+      expect(await screen.findByText(/reported, thanks/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+    })
+
+    it('treats a duplicate report as already done', async () => {
+      mocks.insert.mockResolvedValue({ error: { code: '23505', message: 'duplicate' } })
+      await openReport()
+      await userEvent.click(screen.getByRole('button', { name: 'Send report' }))
+      expect(await screen.findByText(/reported, thanks/i)).toBeInTheDocument()
+    })
+
+    it('shows other errors and keeps the form open', async () => {
+      mocks.insert.mockResolvedValue({ error: { code: '42501', message: 'permission denied' } })
+      await openReport()
+      await userEvent.click(screen.getByRole('button', { name: 'Send report' }))
+      expect(await screen.findByText('permission denied')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Send report' })).toBeInTheDocument()
+    })
+
+    it('can be cancelled', async () => {
+      await openReport()
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByLabelText('Reason')).not.toBeInTheDocument()
+      expect(mocks.insert).not.toHaveBeenCalled()
+    })
+
+    it('is not offered on your own reviews or when logged out', async () => {
+      mocks.user = { id: 'u1' }
+      mocks.select = { data: [review({ user_id: 'u1' })], error: null }
+      renderReviews()
+      await screen.findByText('Solid class')
+      expect(screen.queryByRole('button', { name: 'Report' })).not.toBeInTheDocument()
+    })
   })
 })

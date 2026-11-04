@@ -52,26 +52,31 @@ export default function Search() {
           placeholder="Title, 198:111, department 332, or professor" aria-label="Search courses" />
         <button type="submit">Search</button>
       </form>
-      <div className="row">
-        <label>Department{' '}
-          <select value={subject} onChange={(e) => update({ subject: e.target.value })}>
-            <option value="">All departments</option>
-            {subjects.map((s) => (
-              <option key={s.code} value={s.code}>{s.code} {s.description}</option>
-            ))}
-          </select>
-        </label>
-        <label>Sort{' '}
-          <select value={sort} onChange={(e) => update({ sort: e.target.value })}>
-            <option value="">Best match</option>
-            <option value="course">Course number</option>
-            <option value="rating">Highest rated</option>
-          </select>
-        </label>
-        <label><input type="checkbox" checked={openOnly}
-          onChange={(e) => update({ open: e.target.checked ? '1' : '' })} /> Open sections only</label>
-      </div>
-
+      <div className="split">
+        <aside className="side filters">
+          <h2>Filters</h2>
+          <label className="field">Department
+            <select value={subject} onChange={(e) => update({ subject: e.target.value })}>
+              <option value="">All departments</option>
+              {subjects.map((s) => (
+                <option key={s.code} value={s.code}>{s.code} {s.description}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">Sort
+            <select value={sort} onChange={(e) => update({ sort: e.target.value })}>
+              <option value="">Best match</option>
+              <option value="course">Course number</option>
+              <option value="rating">Highest rated</option>
+            </select>
+          </label>
+          <label className="check"><input type="checkbox" checked={openOnly}
+            onChange={(e) => update({ open: e.target.checked ? '1' : '' })} /> Open sections only</label>
+          {(subject || sort || openOnly) && (
+            <button className="link" onClick={() => setParams(q ? { q } : {})}>Clear filters</button>
+          )}
+        </aside>
+        <div>
       {error && <p className="error">{error}</p>}
       {!data && !error && <p className="muted">Loading courses...</p>}
       {data && (
@@ -98,6 +103,8 @@ export default function Search() {
           </div>
         </>
       )}
+        </div>
+      </div>
     </>
   )
 }

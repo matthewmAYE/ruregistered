@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getProfessor } from '../api'
 import RatingBlock from '../components/Stars'
+import Reviews from '../components/Reviews'
 
 export default function Professor() {
   const { key } = useParams()
@@ -20,6 +21,20 @@ export default function Professor() {
     <>
       <p><Link to="/">Back to search</Link></p>
       <h1>{prof.display_name}</h1>
+      <div className="split rev">
+      <div>
+      <h2>Teaching this term</h2>
+      <ul className="plain">
+        {prof.courses.map((c) => (
+          <li key={c.course_string} className="item">
+            <Link to={`/courses/${c.course_string}`}>{c.course_string} {c.title}</Link>
+          </li>
+        ))}
+      </ul>
+      <Reviews professorKey={prof.key} />
+      </div>
+      <aside className="side">
+      <h2>Ratings</h2>
       {prof.rmp ? (
         <>
           <RatingBlock label="RateMyProfessors" data={prof.rmp} />
@@ -30,14 +45,8 @@ export default function Professor() {
       ) : (
         <p className="muted">No RateMyProfessors match found ({prof.match.status}).</p>
       )}
-      <h2>Teaching this term</h2>
-      <ul className="plain">
-        {prof.courses.map((c) => (
-          <li key={c.course_string} className="item">
-            <Link to={`/courses/${c.course_string}`}>{c.course_string} {c.title}</Link>
-          </li>
-        ))}
-      </ul>
+      </aside>
+      </div>
     </>
   )
 }

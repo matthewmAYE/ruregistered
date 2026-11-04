@@ -5,6 +5,9 @@ import Professor from '../pages/Professor'
 import { getProfessor } from '../api'
 
 vi.mock('../api', () => ({ getProfessor: vi.fn() }))
+vi.mock('../components/Reviews', () => ({
+  default: ({ professorKey }) => <div>reviews for {professorKey}</div>,
+}))
 
 const base = {
   key: 'smith-john', display_name: 'John Smith',
@@ -35,6 +38,12 @@ describe('Professor page', () => {
     expect(screen.getByRole('link', { name: /view on ratemyprofessors/i }))
       .toHaveAttribute('href', 'https://www.ratemyprofessors.com/professor/1')
     expect(screen.getByRole('link', { name: /01:198:111/ })).toHaveAttribute('href', '/courses/01:198:111')
+  })
+
+  it('shows student reviews for this professor', async () => {
+    getProfessor.mockResolvedValue({ ...base, rmp: null })
+    renderProf()
+    expect(await screen.findByText('reviews for smith-john')).toBeInTheDocument()
   })
 
   it('explains when there is no RMP match', async () => {

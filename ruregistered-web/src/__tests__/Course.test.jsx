@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import Course from '../pages/Course'
 import { getCourse } from '../api'
 
 vi.mock('../api', () => ({ getCourse: vi.fn() }))
+const saved = vi.hoisted(() => ({ signedIn: true, error: '', has: vi.fn(), toggle: vi.fn() }))
+vi.mock('../saved', () => ({ useSaved: () => saved }))
 vi.mock('../components/Reviews', () => ({
   default: ({ courseString }) => <div>reviews for {courseString}</div>,
 }))
@@ -39,7 +42,12 @@ const renderCourse = () =>
     </MemoryRouter>
   )
 
-beforeEach(() => { vi.mocked(getCourse).mockReset() })
+beforeEach(() => {
+  vi.mocked(getCourse).mockReset()
+  saved.signedIn = true
+  saved.has.mockReset().mockReturnValue(false)
+  saved.toggle.mockReset()
+})
 
 describe('Course page', () => {
   it('shows a loading state, then the course', async () => {
@@ -69,6 +77,12 @@ describe('Course page', () => {
     expect(screen.getByText('By arrangement')).toBeInTheDocument()
   })
 
+  it('shows how many sections are open in the sidebar', async () => {
+    getCourse.mockResolvedValue(courseData)
+    renderCourse()
+    expect(await screen.findByText('1 of 2 sections open')).toBeInTheDocument()
+  })
+
   it('renders the reviews section for this course', async () => {
     getCourse.mockResolvedValue(courseData)
     renderCourse()
@@ -79,5 +93,37 @@ describe('Course page', () => {
     getCourse.mockRejectedValue(new Error('No course 01:198:111 in this term'))
     renderCourse()
     expect(await screen.findByText(/No course 01:198:111/)).toBeInTheDocument()
+  })
+
+  it('saves the course', async () => {
+    getCourse.mockResolvedValue(courseData)
+    renderCourse()
+    await userEvent.click(await screen.findByRole('button', { name: 'Save course' }))
+    expect(saved.toggle).toHaveBeenCalledWith('course', '01:198:111', '01:198:111')
+  })
+
+  it('shows Saved when the course is already saved', async () => {
+    getCourse.mockResolvedValue(courseData)
+    saved.has.mockImplementation((kind) => kind === 'course')
+    renderCourse()
+    expect(await screen.findByRole('button', { name: 'Saved' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('adds and removes a section from the schedule', async () => {
+    getCourse.mockResolvedValue(courseData)
+    saved.has.mockImplementation((kind, id) => kind === 'section' && id === '12346')
+    renderCourse()
+    await userEvent.click((await screen.findAllByRole('button', { name: 'Add to schedule' }))[0])
+    expect(saved.toggle).toHaveBeenCalledWith('section', '12345', '01:198:111')
+    await userEvent.click(screen.getByRole('button', { name: 'Remove from schedule' }))
+    expect(saved.toggle).toHaveBeenCalledWith('section', '12346', '01:198:111')
+  })
+
+  it('asks logged-out visitors to log in instead of showing save buttons', async () => {
+    getCourse.mockResolvedValue(courseData)
+    saved.signedIn = false
+    renderCourse()
+    expect(await screen.findByText(/to save courses and plan a schedule/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save course|add to schedule/i })).not.toBeInTheDocument()
   })
 })
